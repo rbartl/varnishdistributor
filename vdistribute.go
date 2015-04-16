@@ -19,7 +19,7 @@ func vDistribute(w http.ResponseWriter, r *http.Request) {
     var status int
     var statusText string
     for _, server := range servers {
-        req, _ := http.NewRequest(r.Method, "http://" + server, nil)
+        req, _ := http.NewRequest(r.Method, "http://" + server + r.RequestURI, nil)
         req.Header.Add("Host", r.Host)
         req.Host = r.Host
         req.Header = r.Header
