@@ -5,7 +5,7 @@ import "log/syslog"
 import "io/ioutil"
 import "io"
 import "os"
-import "code.google.com/p/getopt"
+import "github.com/pborman/getopt"
 
 var servers []string
 var slog *syslog.Writer
