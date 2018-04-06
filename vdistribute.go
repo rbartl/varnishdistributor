@@ -7,6 +7,7 @@ import "io"
 import "os"
 import "github.com/pborman/getopt"
 
+
 var servers []string
 var slog *syslog.Writer
 
@@ -23,6 +24,7 @@ func vDistribute(w http.ResponseWriter, r *http.Request) {
         req.Header.Add("Host", r.Host)
         req.Host = r.Host
         req.Header = r.Header
+        req.URL.Opaque = r.RequestURI
         resp, _ := client.Do(req)
         defer resp.Body.Close()
         body, _ = ioutil.ReadAll(resp.Body)
