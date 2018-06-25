@@ -25,7 +25,11 @@ func vDistribute(w http.ResponseWriter, r *http.Request) {
         req.Host = r.Host
         req.Header = r.Header
         req.URL.Opaque = r.RequestURI
-        resp, _ := client.Do(req)
+        resp, err := client.Do(req)
+        if err != nil {
+            slog.Notice (server + " error returned:" + err.Error())
+            continue
+        }
         defer resp.Body.Close()
         body, _ = ioutil.ReadAll(resp.Body)
         slog.Notice (server + " returned:" + resp.Status)
