@@ -7,7 +7,6 @@ import "io"
 import "os"
 import "github.com/pborman/getopt"
 import "encoding/json"
-import "fmt"
 
 var servers []string
 var slog *syslog.Writer
@@ -52,7 +51,7 @@ func vDistribute(w http.ResponseWriter, r *http.Request) {
             allOK = false
         } else {
             defer resp.Body.Close()
-            body, _ := ioutil.ReadAll(resp.Body)
+            _, _ = ioutil.ReadAll(resp.Body)
             slog.Notice(server + " returned:" + resp.Status)
             status.StatusCode = resp.StatusCode
             status.StatusText = resp.Status
