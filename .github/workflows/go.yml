@@ -19,8 +19,16 @@ jobs:
       with:
         go-version: 1.21
 
+    - name: Install dep
+      run: |
+        curl https://raw.githubusercontent.com/golang/dep/master/install.sh | sh
+        export PATH=$PATH:$GOPATH/bin
+
+    - name: Install dependencies
+      run: dep ensure
+
     - name: Build
-      run: go build -v ./...
+      run: go build -v ./vdistribute.go
 
     - name: Test
       run: go test -v ./...
@@ -35,6 +43,14 @@ jobs:
       uses: actions/setup-go@v4
       with:
         go-version: 1.21
+
+    - name: Install dep
+      run: |
+        curl https://raw.githubusercontent.com/golang/dep/master/install.sh | sh
+        export PATH=$PATH:$GOPATH/bin
+
+    - name: Install dependencies
+      run: dep ensure
 
     - name: Build Linux Binary
       run: |
