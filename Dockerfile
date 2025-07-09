@@ -1,18 +1,33 @@
-#FROM golang:onbuild
-FROM iron/go:dev
+# Build stage
+FROM golang:1.21-alpine AS builder
 
+WORKDIR /app
 
-RUN mkdir /app 
-ADD . /app/ 
-WORKDIR /app 
-#RUN dep ensure
+# Copy go mod files
+COPY go.mod go.sum ./
 
-ENV SRC_DIR=/go/src/github.com/rbartl/varnishdistributor
-# Add the source code:
-ADD . $SRC_DIR
+# Download dependencies
+RUN go mod download
 
-WORKDIR $SRC_DIR
-#RUN cd $SRC_DIR; go build 
+# Copy source code
+COPY . .
 
-#CMD ["/usr/local/go/bin/go"]
+# Build the application
+RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o varnishdistributor ./vdistribute.go
+
+# Runtime stage
+FROM alpine:latest
+
+RUN apk --no-cache add ca-certificates
+
+WORKDIR /root/
+
+# Copy the binary from builder stage
+COPY --from=builder /app/varnishdistributor .
+
+# Expose port
+EXPOSE 6083
+
+# Run the binary
+CMD ["./varnishdistributor"]
 
