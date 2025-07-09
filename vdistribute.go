@@ -6,19 +6,32 @@ import "io/ioutil"
 import "io"
 import "os"
 import "github.com/pborman/getopt"
-
+import "encoding/json"
+import "fmt"
 
 var servers []string
 var slog *syslog.Writer
+
+type EndpointStatus struct {
+    Server     string `json:"server"`
+    StatusCode int    `json:"status_code"`
+    StatusText string `json:"status_text"`
+    Error      string `json:"error,omitempty"`
+}
+
+type ResponseData struct {
+    Endpoints []EndpointStatus `json:"endpoints"`
+    AllOK     bool            `json:"all_ok"`
+}
 
 func vDistribute(w http.ResponseWriter, r *http.Request) {
     client := &http.Client{
     }
 	slog.Notice("distributor called " + r.Method + " " + r.Host + " " + r.RequestURI)
 
-    var body []byte
-    var status int
-    var statusText string
+    var endpointStatuses []EndpointStatus
+    allOK := true
+
     for _, server := range servers {
         req, _ := http.NewRequest(r.Method, "http://" + server + r.RequestURI, nil)
         req.Header.Add("Host", r.Host)
@@ -26,20 +39,59 @@ func vDistribute(w http.ResponseWriter, r *http.Request) {
         req.Header = r.Header
         req.URL.Opaque = r.RequestURI
         resp, err := client.Do(req)
-        if err != nil {
-            slog.Notice (server + " error returned:" + err.Error())
-            continue
+        
+        status := EndpointStatus{
+            Server: server,
         }
-        defer resp.Body.Close()
-        body, _ = ioutil.ReadAll(resp.Body)
-        slog.Notice (server + " returned:" + resp.Status)
-        status = resp.StatusCode
-        statusText = resp.Status
+        
+        if err != nil {
+            slog.Notice(server + " error returned:" + err.Error())
+            status.Error = err.Error()
+            status.StatusCode = 0
+            status.StatusText = "Connection Error"
+            allOK = false
+        } else {
+            defer resp.Body.Close()
+            body, _ := ioutil.ReadAll(resp.Body)
+            slog.Notice(server + " returned:" + resp.Status)
+            status.StatusCode = resp.StatusCode
+            status.StatusText = resp.Status
+            
+            if resp.StatusCode != 200 {
+                allOK = false
+            }
+        }
+        
+        endpointStatuses = append(endpointStatuses, status)
     }
-    // return last status and body
-    w.Header().Add("Status", statusText);
-    w.WriteHeader(status)
-    io.WriteString(w, string(body))
+    
+    // Create response data
+    responseData := ResponseData{
+        Endpoints: endpointStatuses,
+        AllOK:     allOK,
+    }
+    
+    // Convert to JSON
+    jsonResponse, err := json.Marshal(responseData)
+    if err != nil {
+        slog.Notice("JSON marshaling error: " + err.Error())
+        w.WriteHeader(500)
+        io.WriteString(w, "Internal Server Error")
+        return
+    }
+    
+    // Set response headers
+    w.Header().Set("Content-Type", "application/json")
+    
+    // Set HTTP status based on whether all endpoints are OK
+    if allOK {
+        w.WriteHeader(200)
+    } else {
+        w.WriteHeader(207) // Multi-Status
+    }
+    
+    // Write JSON response
+    io.WriteString(w, string(jsonResponse))
 }
 
 
