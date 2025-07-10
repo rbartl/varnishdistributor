@@ -60,6 +60,7 @@ func vDistribute(w http.ResponseWriter, r *http.Request) {
     var endpointStatuses []EndpointStatus
     allOK := true
 
+    serversMutex.RLock()
     for _, server := range servers {
         req, _ := http.NewRequest(r.Method, "http://" + server + r.RequestURI, nil)
         req.Header.Add("Host", r.Host)
@@ -92,6 +93,7 @@ func vDistribute(w http.ResponseWriter, r *http.Request) {
         
         endpointStatuses = append(endpointStatuses, status)
     }
+    serversMutex.RUnlock()
     
     // Create response data
     responseData := ResponseData{
@@ -291,27 +293,63 @@ func main() {
     if opts.NArgs() > 0 {
         for _, arg := range opts.Args() {
             if useLookup {
-                safeLog("NOTICE", "Resolving server address: " + arg)
-                resolvedAddrs, err := resolveHostname(arg)
-                if err != nil {
-                    safeLog("ERR", "DNS lookup failed for " + arg + ": " + err.Error())
-                    fmt.Fprintf(os.Stderr, "Error: DNS lookup failed for %s: %v\n", arg, err)
-                    os.Exit(1)
-                }
-                for _, addr := range resolvedAddrs {
-                    safeLog("NOTICE", "Resolved " + arg + " to " + addr)
-                    servers = append(servers, addr)
-                }
+                originalHostnames = append(originalHostnames, arg)
             } else {
                 safeLog("NOTICE", "Adding Server:" + arg)
                 servers = append(servers, arg)
             }
+        }
+        if useLookup {
+            // Initial resolve
+            var resolved []string
+            for _, hostname := range originalHostnames {
+                safeLog("NOTICE", "Resolving server address: " + hostname)
+                addrs, err := resolveHostname(hostname)
+                if err != nil {
+                    safeLog("ERR", "DNS lookup failed for " + hostname + ": " + err.Error())
+                    fmt.Fprintf(os.Stderr, "Error: DNS lookup failed for %s: %v\n", hostname, err)
+                    os.Exit(1)
+                }
+                for _, addr := range addrs {
+                    safeLog("NOTICE", "Resolved " + hostname + " to " + addr)
+                    resolved = append(resolved, addr)
+                }
+            }
+            serversMutex.Lock()
+            servers = resolved
+            serversMutex.Unlock()
         }
     } else {
         fmt.Fprintf(os.Stderr, "Error: No backend servers specified\n\n")
         fmt.Fprintf(os.Stderr, "USAGE: vdistribute [OPTIONS] server1 server2 [server3...]\n")
         fmt.Fprintf(os.Stderr, "Try 'vdistribute --help' for more information\n")
         os.Exit(1)
+    }
+
+    if useLookup {
+        go func() {
+            ticker := time.NewTicker(60 * time.Second)
+            defer ticker.Stop()
+            for {
+                <-ticker.C
+                var resolved []string
+                for _, hostname := range originalHostnames {
+                    safeLog("NOTICE", "Refreshing DNS for: " + hostname)
+                    addrs, err := resolveHostname(hostname)
+                    if err != nil {
+                        safeLog("ERR", "DNS refresh failed for " + hostname + ": " + err.Error())
+                        continue
+                    }
+                    for _, addr := range addrs {
+                        safeLog("NOTICE", "Refreshed " + hostname + " to " + addr)
+                        resolved = append(resolved, addr)
+                    }
+                }
+                serversMutex.Lock()
+                servers = resolved
+                serversMutex.Unlock()
+            }
+        }()
     }
 
 	http.HandleFunc("/", vDistribute)
