@@ -20,7 +20,7 @@ FROM alpine:latest
 
 RUN apk --no-cache add ca-certificates
 
-WORKDIR /root/
+WORKDIR /opt/
 
 # Copy the binary from builder stage
 COPY --from=builder /app/varnishdistributor .
@@ -29,5 +29,5 @@ COPY --from=builder /app/varnishdistributor .
 EXPOSE 6083
 
 # Run the binary
-CMD ["./varnishdistributor"]
+ENTRYPOINT ["./varnishdistributor"]
 
