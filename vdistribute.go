@@ -7,9 +7,13 @@ import "io"
 import "os"
 import "github.com/pborman/getopt"
 import "encoding/json"
+import "log"
+import "fmt"
 
 var servers []string
 var slog *syslog.Writer
+var useSyslog bool
+var logger *log.Logger
 
 type EndpointStatus struct {
     Server     string `json:"server"`
@@ -23,10 +27,28 @@ type ResponseData struct {
     AllOK     bool            `json:"all_ok"`
 }
 
+// safeLog logs a message either to syslog (if available) or stdout
+func safeLog(level, message string) {
+    if useSyslog && slog != nil {
+        switch level {
+        case "NOTICE":
+            slog.Notice(message)
+        case "ERR":
+            slog.Err(message)
+        case "WARNING":
+            slog.Warning(message)
+        default:
+            slog.Info(message)
+        }
+    } else {
+        logger.Printf("[%s] %s", level, message)
+    }
+}
+
 func vDistribute(w http.ResponseWriter, r *http.Request) {
     client := &http.Client{
     }
-	slog.Notice("distributor called " + r.Method + " " + r.Host + " " + r.RequestURI)
+	safeLog("NOTICE", "distributor called " + r.Method + " " + r.Host + " " + r.RequestURI)
 
     var endpointStatuses []EndpointStatus
     allOK := true
@@ -44,7 +66,7 @@ func vDistribute(w http.ResponseWriter, r *http.Request) {
         }
         
         if err != nil {
-            slog.Notice(server + " error returned:" + err.Error())
+            safeLog("NOTICE", server + " error returned:" + err.Error())
             status.Error = err.Error()
             status.StatusCode = 0
             status.StatusText = "Connection Error"
@@ -52,7 +74,7 @@ func vDistribute(w http.ResponseWriter, r *http.Request) {
         } else {
             defer resp.Body.Close()
             _, _ = ioutil.ReadAll(resp.Body)
-            slog.Notice(server + " returned:" + resp.Status)
+            safeLog("NOTICE", server + " returned:" + resp.Status)
             status.StatusCode = resp.StatusCode
             status.StatusText = resp.Status
             
@@ -73,7 +95,7 @@ func vDistribute(w http.ResponseWriter, r *http.Request) {
     // Convert to JSON
     jsonResponse, err := json.Marshal(responseData)
     if err != nil {
-        slog.Notice("JSON marshaling error: " + err.Error())
+        safeLog("NOTICE", "JSON marshaling error: " + err.Error())
         w.WriteHeader(500)
         io.WriteString(w, "Internal Server Error")
         return
@@ -95,23 +117,39 @@ func vDistribute(w http.ResponseWriter, r *http.Request) {
 
 
 func main() {
-    slog, _ = syslog.New(syslog.LOG_INFO, "[vdistribute]")
-    defer slog.Close()
-
+    // Initialize stdout logger as fallback
+    logger = log.New(os.Stdout, "", log.LstdFlags)
 
     var l = getopt.String('a', ":6083", "listen port (:6083)")
+    var syslogFlag = getopt.Bool('s', "use syslog for logging (default: stdout)")
 
     var opts = getopt.CommandLine
 
     opts.Parse(os.Args)
+    
+    useSyslog = *syslogFlag
+    
+    if useSyslog {
+        // Try to initialize syslog, but don't fail if it's not available
+        var err error
+        slog, err = syslog.New(syslog.LOG_INFO, "[vdistribute]")
+        if err != nil {
+            fmt.Fprintf(os.Stderr, "Warning: Could not initialize syslog: %v. Falling back to stdout logging.\n", err)
+            useSyslog = false
+            slog = nil
+        } else {
+            defer slog.Close()
+        }
+    }
+    
     if opts.NArgs() > 0 {
         for _, arg := range opts.Args() {
-            slog.Notice("Adding Server:" + arg)
+            safeLog("NOTICE", "Adding Server:" + arg)
             servers = append(servers, arg)
 
         }
     } else {
-        slog.Notice("Not Enough Servers")
+        safeLog("NOTICE", "Not Enough Servers")
         os.Exit(1)
     }
 
